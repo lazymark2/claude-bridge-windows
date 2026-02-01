@@ -122,6 +122,20 @@ python claude_bridge.py
 start.bat
 ```
 
+### 7. 设置开机启动（可选）
+
+项目已包含自动设置脚本，运行以下命令：
+
+```bash
+powershell -ExecutionPolicy Bypass -File setup_startup.ps1
+```
+
+或手动操作：
+1. 复制 `start_bot_hidden.vbs` 的快捷方式到启动文件夹：
+   ```
+   C:\Users\你的用户名\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\
+   ```
+
 ---
 
 ## 📱 Telegram 命令
