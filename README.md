@@ -1,131 +1,248 @@
-# MateCode - Claude Code Telegram Bridge
+# Claude Bridge - Telegram Bot for Claude Code CLI
 
-通过 Telegram 远程控制 Claude Code。
+> **Windows 原生版本** - 通过 Telegram 远程控制 Claude Code CLI
 
-![demo](demo.gif)
+![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
+![License](https://img.shields.io/badge/License-MIT-green.svg)
+![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey.svg)
 
-## 功能
+---
 
-- 📱 在 Telegram 上与 Claude 对话
-- 🧠 **长期记忆**：自动保存和召回对话历史
-- 🔄 会话管理（清空、恢复、继续）
-- 📝 代码高亮和格式化回复
-- 🔒 纯 Polling 模式，无需公网暴露
+## ✨ 特性
 
-## 快速开始
+- ✅ **Windows 原生支持** - 无需 WSL、tmux、node-pty
+- ✅ **Claude Code CLI 集成** - 直接调用本地 Claude Code CLI
+- ✅ **GLM API 备用** - Claude Code CLI 不可用时自动切换
+- ✅ **流式输出** - 实时返回 AI 响应，无阻塞
+- ✅ **项目切换** - 随意切换工作目录
+- ✅ **斜杠命令** - Telegram 原生命令菜单支持
+- ✅ **局域友好** - Bot 在本地运行，无需公网 IP
 
-```bash
-# 1. 安装依赖 (macOS)
-brew install tmux
+---
 
-# 2. 设置 token（从 @BotFather 获取）
-export TELEGRAM_BOT_TOKEN="your_token"
+## 🚀 快速开始
 
-# 3. 启动
-./matecode.sh start
-```
+### 1. 环境要求
 
-## 配置
+- Windows 10/11
+- Python 3.8+
+- Claude Code CLI（或 GLM API Key）
 
-### 1. 创建 Telegram Bot
-
-在 Telegram 搜索 @BotFather，发送 `/newbot` 创建 bot。
-
-### 2. 配置 Claude 钩子
+### 2. 安装 Claude Code CLI
 
 ```bash
-cp hooks/send-to-telegram.sh ~/.claude/hooks/
-# 编辑设置 bot token
-nano ~/.claude/hooks/send-to-telegram.sh
-chmod +x ~/.claude/hooks/send-to-telegram.sh
+npm install -g @anthropic-ai/claude-code
 ```
 
-添加 hook 到 `~/.claude/settings.json`:
+或者使用 GLM API（备用方案）：
+- 访问 [智谱 AI 开放平台](https://open.bigmodel.cn/) 获取 API Key
 
-```json
-{
-  "hooks": {
-    "Stop": [{"hooks": [{"type": "command", "command": "~/.claude/hooks/send-to-telegram.sh"}]}]
-  }
-}
-```
+### 3. 创建 Telegram Bot
 
-## 命令
-- ./matecode.sh
-- ./tmux-setup.sh
-- tmux source-file ~/.tmux.conf
-- ./bridge_manager stop
+1. 在 Telegram 搜索 `@BotFather`
+2. 发送 `/newbot` 创建 bot
+3. 获取 Bot Token
+
+### 4. 配置项目
 
 ```bash
-./matecode.sh start      # 启动服务
-./matecode.sh stop       # 停止服务
-./matecode.sh restart    # 重启服务
-./matecode.sh status     # 查看状态
-./matecode.sh logs       # 查看日志
+# 克隆项目
+git clone https://github.com/your-username/claude-bridge-windows.git
+cd claude-bridge-windows
+
+# 复制配置文件
+copy .env.example .env
+
+# 编辑 .env 文件，填入你的 Token
+notepad .env
 ```
 
-## Telegram Bot 命令
+在 `.env` 文件中配置：
+
+```bash
+TELEGRAM_BOT_TOKEN=你的_bot_token
+ZHIPU_API_KEY=你的_GLM_API_key  # 可选
+PROJECT_PATH=C:\Your\Default\Project  # 可选
+```
+
+### 5. 安装依赖
+
+```bash
+pip install python-dotenv
+```
+
+### 6. 启动 Bot
+
+**方式 1：使用批处理文件（推荐）**
+```bash
+start.bat
+```
+
+**方式 2：直接运行 Python**
+```bash
+python claude_bridge.py
+```
+
+---
+
+## 📱 Telegram 命令
+
+### Bridge 控制命令
+
+| 命令 | 功能 | 示例 |
+|------|------|------|
+| `/pwd` | 显示当前工作目录 | `/pwd` |
+| `/cd <path>` | 切换到指定目录 | `/cd C:\Projects` |
+| `/home` | 切换到用户主目录 | `/home` |
+| `/downloads` | 切换到下载目录 | `/downloads` |
+| `/desktop` | 切换到桌面 | `/desktop` |
+| `/bridge` | 显示 Bridge 帮助 | `/bridge` |
+
+### Claude Code 命令
 
 | 命令 | 功能 |
 |------|------|
-| `/status` | 检查 tmux 状态 |
-| `/clear` | 清空对话 |
-| `/continue_` | 继续最近会话 |
-| `/resume` | 选择会话恢复 |
-| `/loop <prompt>` | Ralph 循环模式 |
-| `/stop` | 中断 Claude |
-| `/remember <text>` | 保存内容到记忆 |
-| `/recall [query]` | 搜索/查看记忆 |
-| `/forget <query/all>` | 删除记忆 |
+| `/help` | 显示 Claude Code 帮助 |
+| `/clear` | 清空对话历史 |
+| `/model` | 查看当前模型 |
+| `/cost` | 查看使用成本 |
 
-### 记忆功能
+---
 
-MateCode 内置了基于 SQLite 的本地记忆系统：
+## 💡 使用示例
 
-- **自动记忆**：每次对话自动保存到本地数据库
-- **智能召回**：发送消息时自动搜索相关历史记忆并注入上下文
-- **隐私安全**：所有数据存储在本地 `~/.matecode/memory.db`，不上传云端
-- **手动管理**：使用 `/remember`、`/recall`、`/forget` 命令管理记忆
-
-**环境变量配置：**
-```bash
-export MEMORY_ENABLED=true        # 启用/禁用记忆功能
-export MEMORY_MAX_RESULTS=5       # 每次查询最大记忆数
-export MEMORY_MAX_CONTEXT=2000    # 注入上下文的最大字符数
+### 查看当前目录
+```
+/pwd
 ```
 
-## 常见命令
+### 切换到项目目录
+```
+/cd C:\Users\YourName\Projects\MyProject
+```
 
-    tmux a -t claude
-    tmux source-file ~/.tmux.conf
-    claude --dangerously-skip-permissions
-    tmux kill-session -t claude
-    # 关闭所有 bridge 相关进程
-    pkill -f "bridge\.py|bridge-polling\.py"
+### 在项目中执行操作
+```
+ls                          # 列出文件
+cat README.md               # 查看文件
+find . -name "*.py"         # 查找 Python 文件
+```
 
-## 技术特点
+### 使用 Claude Code
+```
+帮我重构这个函数
+解释这段代码的作用
+创建一个新的用户认证模块
+```
 
-- **纯标准库**: 无外部 Python 依赖
-- **长轮询**: 30 秒超时，低延迟
-- **实时响应**: 监控 transcript 即时推送
-- **安全**: 只向外连接，不接收入站
+---
 
-## 文件说明
+## 🏗️ 项目结构
 
-| 文件 | 用途 |
-|------|------|
-| `matecode.sh` | 主启动脚本 |
-| `bridge.py` | 桥接服务器 |
-| `memory.py` | 本地记忆系统 (SQLite FTS5) |
-| `start_bridge.sh` | 单独启动 bridge |
-| `stop_bridge.sh` | 单独停止 bridge |
-| `hooks/send-to-telegram.sh` | Claude Stop 钩子 |
+```
+claude-bridge-windows/
+├── claude_bridge.py         # 主程序
+├── .env.example             # 配置模板
+├── start.bat                # 启动脚本
+├── run.bat                  # 运行脚本
+├── README.md                # 项目文档
+├── .gitignore               # Git 忽略文件
+└── LICENSE                  # 许可证
+```
 
-## 最佳实践
-- 退出 cc后 tmux kill-session -t claude 退出 tmux
-- 执行 ./matecode stop 清理环境后再执行./matecode.sh 可以避免一次发送多次回复 以及多个bot切换产生的意外hook失效。
-- alias 指令后方便在其他目录拉起工作环境 例如在 dev0201目录完成当日vibe code。
+---
 
-## License
+## 🔧 配置说明
 
-MIT
+### 环境变量
+
+| 变量 | 说明 | 必填 | 默认值 |
+|------|------|------|--------|
+| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token | ✅ | - |
+| `ZHIPU_API_KEY` | 智谱 AI API Key | ❌ | - |
+| `PROJECT_PATH` | 默认项目路径 | ❌ | 当前目录 |
+
+### 高级配置
+
+```bash
+# 设置超时时间（秒）
+TIMEOUT=300
+
+# 启用调试模式
+DEBUG=true
+```
+
+---
+
+## 🛡️ 安全性
+
+- ✅ 只向外连接 Telegram API，不接收入站连接
+- ✅ 支持局域网部署，无需公网 IP
+- ✅ 敏感信息存储在本地 `.env` 文件（不提交到 Git）
+- ✅ 所有 AI 对话历史存储在本地 `~/.claude/` 目录
+
+---
+
+## 📝 技术架构
+
+```
+Telegram → Claude Bridge → Claude Code CLI
+                           ↓
+                      执行命令/生成代码
+                           ↓
+                      流式返回结果
+                           ↓
+                       Telegram
+```
+
+**关键特性：**
+- 使用 `subprocess.Popen` 实时读取 Claude Code CLI 输出
+- 每 ~500 字符发送一次，避免 Telegram 速率限制
+- 支持 stdin/stderr 分离处理
+- 自动 EOF 处理，避免进程挂起
+
+---
+
+## 🐛 故障排查
+
+### Bot 不响应
+1. 检查 Bot Token 是否正确
+2. 确认 Claude Code CLI 已安装：`claude --version`
+3. 查看控制台错误日志
+
+### 429 Too Many Requests
+- 流式输出已优化，正常使用不会触发
+- 如遇到，等待几秒后重试
+
+### 无法切换目录
+- 确保路径存在：`/pwd` 查看当前路径
+- 使用绝对路径更可靠：`/cd C:\Projects`
+- 支持相对路径：`/cd ..`
+
+---
+
+## 📚 原项目
+
+本项目基于 [MateBot](https://github.com/aresbit/MateBot) 修改，移除了 tmux 和 node-pty 依赖，实现 Windows 原生支持。
+
+---
+
+## 📄 License
+
+MIT License - 详见 [LICENSE](LICENSE) 文件
+
+---
+
+## 🤝 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+---
+
+## ⭐ Star History
+
+如果这个项目对你有帮助，请给个 Star ⭐
+
+---
+
+**Made with ❤️ for Claude Code CLI users on Windows**

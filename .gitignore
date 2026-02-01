@@ -1,9 +1,53 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
 .venv/
+venv/
+ENV/
+env/
 *.egg-info/
+dist/
+build/
+
+# Environment
 .env
+.env.local
+.env.*.local
+
+# Logs
 *.log
 *.pid
-*.url
+*.pid.lock
+
+# OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude Code
+.claude/transcripts/
+.claude/projects/
+
+# Session
+*.url
+*.session
+
+# Temporary files
+*.tmp
+*.temp
+test_*.py
+debug_*.py
