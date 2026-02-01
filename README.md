@@ -137,14 +137,7 @@ start.bat
 | `/desktop` | 切换到桌面 | `/desktop` |
 | `/bridge` | 显示 Bridge 帮助 | `/bridge` |
 
-### Claude Code 命令
-
-| 命令 | 功能 |
-|------|------|
-| `/help` | 显示 Claude Code 帮助 |
-| `/clear` | 清空对话历史 |
-| `/model` | 查看当前模型 |
-| `/cost` | 查看使用成本 |
+**注意**：直接发送任何文本都会作为提示词发送给 Claude Code CLI。无需特殊命令，直接与 AI 对话即可。
 
 ---
 

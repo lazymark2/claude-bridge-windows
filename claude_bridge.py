@@ -6,6 +6,7 @@
 
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -63,6 +64,17 @@ def get_updates(offset=None):
 
 def send_message(chat_id, text):
     """发送消息到 Telegram"""
+    # 清理 ANSI 码
+    text = clean_ansi(text)
+
+    # 跳过空消息或纯空白消息
+    if not text or not text.strip():
+        return None
+
+    # 检查消息长度（Telegram 限制 4096 字符）
+    if len(text) > 4096:
+        text = text[:4090] + "... [截断]"
+
     return telegram_api("sendMessage", {"chat_id": chat_id, "text": text})
 
 def setup_bot_commands():
@@ -74,10 +86,6 @@ def setup_bot_commands():
         {"command": "downloads", "description": "⬇️ 切换到下载目录"},
         {"command": "desktop", "description": "🖥️ 切换到桌面"},
         {"command": "bridge", "description": "🔧 显示 Bridge 控制命令帮助"},
-        {"command": "help", "description": "❓ 显示 Claude Code 帮助"},
-        {"command": "clear", "description": "🗑️ 清空对话历史"},
-        {"command": "model", "description": "🤖 查看当前模型"},
-        {"command": "cost", "description": "💰 查看使用成本"},
     ]
 
     result = telegram_api("setMyCommands", {"commands": commands})
@@ -89,6 +97,19 @@ def setup_bot_commands():
     else:
         print("[Telegram] ✗ 命令菜单注册失败")
     return result
+
+def clean_ansi(text):
+    """移除 ANSI 转义码（颜色、格式等）
+
+    Args:
+        text: 原始文本
+
+    Returns:
+        清理后的文本
+    """
+    # 移除 ANSI 转义序列
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    return ansi_escape.sub('', text)
 
 # ============================================================
 # Claude Code CLI Wrapper (Windows 版)
@@ -155,7 +176,7 @@ class ClaudeCodeCLI:
                     shell=True,
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,  # 合并 stderr 到 stdout
                     text=True,
                     cwd=self.project_path
                 )
@@ -172,7 +193,9 @@ class ClaudeCodeCLI:
                     if not line and process.poll() is not None:
                         break
                     if line:
-                        output_buffer.append(line)
+                        # 清理 ANSI 转义码
+                        clean_line = clean_ansi(line)
+                        output_buffer.append(clean_line)
                         # 每累计约 500 字符就发送一次
                         current_output = "".join(output_buffer)
                         if len(current_output) >= 500:
@@ -185,18 +208,6 @@ class ClaudeCodeCLI:
 
                 # 等待进程结束
                 process.wait(timeout=timeout)
-
-                # 检查错误
-                error = process.stderr.read()
-
-                if process.returncode != 0:
-                    if "API key" in error or "ANTHROPIC" in error:
-                        return False, "API密钥错误或未配置"
-                    elif "network" in error.lower():
-                        return False, "网络连接错误"
-                    else:
-                        # 其他错误可能仍然有输出
-                        pass
 
                 return True, ""
 
@@ -466,11 +477,23 @@ class ClaudeBridge:
         """
         print(f"\n[ClaudeBridge] 处理消息: {user_message[:50]}...")
 
-        # 处理 Telegram 斜杠命令：去掉开头的 /
-        # 例如 /help -> help, /clear -> clear
+        # 处理斜杠命令
+        # Bridge 特殊命令（pwd, cd, home, downloads, desktop, bridge）需要去掉斜杠
+        # Claude Code CLI 内置命令（/model, /cost, /help, /clear 等）需要保留斜杠
+        BRIDGE_COMMANDS = {"pwd", "cd", "home", "downloads", "desktop", "bridge"}
+
         if user_message.startswith("/"):
-            user_message = user_message[1:]
-            print(f"[ClaudeBridge] 检测到斜杠命令，转换为: {user_message}")
+            # 提取命令名（不包含参数）
+            cmd_with_args = user_message[1:].strip()
+            cmd_name = cmd_with_args.split()[0] if cmd_with_args else ""
+
+            # 只有 Bridge 特殊命令才去掉斜杠
+            if cmd_name in BRIDGE_COMMANDS:
+                user_message = cmd_with_args
+                print(f"[ClaudeBridge] Bridge 命令，去掉斜杠: {user_message}")
+            else:
+                # Claude Code CLI 内置命令保留斜杠
+                print(f"[ClaudeBridge] Claude CLI 命令，保留斜杠: {user_message}")
 
         # 处理特殊的 Bridge 控制命令
         if self._handle_bridge_commands(user_message, chat_id):
@@ -488,7 +511,7 @@ class ClaudeBridge:
 
             # 只发送新增的内容
             new_content = content[last_sent_length:]
-            if not new_content:
+            if not new_content or not new_content.strip():
                 return
 
             # 分块发送（Telegram 限制4096字符）
@@ -497,8 +520,6 @@ class ClaudeBridge:
                 result = send_message(chat_id, chunk)
                 if result and result.get("ok"):
                     print(f"[ClaudeBridge] 发送 {len(chunk)} 字符")
-                else:
-                    print(f"[ClaudeBridge] 发送失败: {chunk[:50]}...")
 
             last_sent_length = len(content)
 
