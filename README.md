@@ -1,86 +1,87 @@
-# Claude Bridge - GLM API 优化版
+# Claude Bridge - Telegram Bot for Claude Code CLI
 
-> **大幅降低 AI 编程成本** - 使用智谱 GLM Coding Plan 替代昂贵的 Claude API
+> **Windows 原生版本** - 基于 MateBot 修改，无需 tmux 和 transcript
 
 ![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 ![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey.svg)
-![GLM](https://img.shields.io/badge/API-GLM%20Coding%20Plan-orange.svg)
 
 ---
 
-## 💰 核心优势
+## ✨ 特性
 
-### 🎯 为什么选择 GLM API？
-
-| 特性 | 原始 MateBot | **Claude Bridge (本项目)** |
-|------|---------------|---------------------------|
-| API 依赖 | Anthropic Claude | **智谱 GLM Coding Plan** |
-| 费用 | 高 ($$$) | **低 ($) - 节省 90%+** |
-| Transcript | 必需 | **不需要** |
-| tmux 依赖 | 必需 | **不需要** |
-| Windows 支持 | 需 WSL | **原生支持** |
-| 部署难度 | 复杂 | **简单** |
-
-### ✨ 主要特性
-
-- 💰 **超低成本** - GLM Coding Plan 比 Claude API 便宜 **90% 以上**
-- ✅ **无 Transcript 依赖** - 不需要 Anthropic 的 transcript 文件
-- 🪟 **Windows 原生** - 无需 WSL、tmux、node-pty
-- 🚀 **即开即用** - 配置简单，5分钟启动
-- 📱 **Telegram 控制** - 随时随地远程控制
-- 🔄 **流式输出** - 实时返回 AI 响应，无阻塞
-- 📁 **项目切换** - 轻松切换不同工作目录
+- ✅ **Windows 原生支持** - 无需 WSL、tmux、node-pty
+- ✅ **Claude Code CLI 集成** - 直接调用本地 Claude Code CLI
+- ✅ **GLM API 支持** - 支持 GLM API 作为替代方案
+- ✅ **流式输出** - 实时返回 AI 响应，无阻塞
+- ✅ **项目切换** - 轻松切换不同工作目录
+- ✅ **斜杠命令** - Telegram 原生命令菜单支持
 
 ---
 
-## 💡 成本对比
+## 🔄 与原 MateBot 的区别
 
-### 使用 Claude API (原始方案)
-```
-每月费用：$20-100+
-- Claude Sonnet: ~$3-15 per 1M tokens
-- 需要持续监控 transcript 文件
-- 复杂的部署架构
-```
+### 架构简化
 
-### 使用 GLM Coding Plan (本方案)
+**原 MateBot：**
 ```
-每月费用：$2-10
-- GLM-4-Flash: 免费 1M tokens/天
-- GLM-4-Air: ¥1 per 1M tokens
-- GLM-4-Plus: ¥12 per 1M tokens
-- **节省 90%+ 的成本！**
+Telegram → MateBot → tmux → Claude Code CLI
+                           ↓
+                    监控 transcript 文件
 ```
 
-**具体示例：**
-- 处理 100 个简单编程任务
-- Claude API: ~$30-50
-- **GLM API: ~$3-5**
-- 💰 **节省 90%！**
+**本项目：**
+```
+Telegram → Claude Bridge → Claude Code CLI / GLM API
+```
+
+### 主要变化
+
+| 特性 | MateBot | 本项目 |
+|------|---------|--------|
+| **Transcript 依赖** | 必需 | 不需要 |
+| **tmux 依赖** | 必需 | 不需要 |
+| **WSL** | Linux/Mac only | Windows 原生 |
+| **node-pty** | 必需 | 不需要 |
+| **API 选择** | 仅 Claude | Claude + GLM |
+| **部署难度** | 较复杂 | 简单 |
+
+### 为什么不需要 Transcript？
+
+原 MateBot 通过监控 Claude Code CLI 的 transcript 文件来获取 AI 的响应。本项目使用两种更直接的方式：
+
+1. **Claude Code CLI 模式**：直接通过 subprocess 获取输出
+2. **GLM API 模式**：直接调用 GLM API，无需本地 CLI
 
 ---
 
 ## 🚀 快速开始
 
-### 1. 获取 GLM API Key
+### 1. 环境要求
 
+- Windows 10/11
+- Python 3.8+
+- Claude Code CLI（或 GLM API Key）
+
+### 2. 选择 API 方案
+
+**方案 A：Claude Code CLI（推荐）**
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+**方案 B：GLM API**
 1. 访问 [智谱 AI 开放平台](https://open.bigmodel.cn/)
-2. 注册账号（新用户送大量免费额度）
-3. 创建 API Key
+2. 注册账号并创建 API Key
+3. 新用户有免费额度
 
-**免费额度：**
-- GLM-4-Flash: 1M tokens/天（免费）
-- GLM-4-Air: 200M tokens（付费后赠送）
-- GLM-4-Plus: 50M tokens（付费后赠送）
-
-### 2. 创建 Telegram Bot
+### 3. 创建 Telegram Bot
 
 1. 在 Telegram 搜索 `@BotFather`
 2. 发送 `/newbot` 创建 bot
 3. 获取 Bot Token
 
-### 3. 配置项目
+### 4. 配置项目
 
 ```bash
 # 克隆项目
@@ -100,29 +101,25 @@ notepad .env
 # Telegram Bot Token（必填）
 TELEGRAM_BOT_TOKEN=你的_bot_token
 
-# GLM API Key（必填）- 推荐使用 GLM Coding Plan
+# GLM API Key（可选，如果不用 Claude Code CLI）
 ZHIPU_API_KEY=你的_GLM_API_key
 
 # 默认项目路径（可选）
 PROJECT_PATH=C:\Your\Default\Project
 ```
 
-### 4. 安装依赖
+### 5. 安装依赖
 
 ```bash
 pip install python-dotenv
 ```
 
-### 5. 启动 Bot
+### 6. 启动 Bot
 
-**方式 1：使用批处理文件（推荐）**
-```bash
-start.bat
-```
-
-**方式 2：直接运行 Python**
 ```bash
 python claude_bridge.py
+# 或
+start.bat
 ```
 
 ---
@@ -140,36 +137,36 @@ python claude_bridge.py
 | `/desktop` | 切换到桌面 | `/desktop` |
 | `/bridge` | 显示 Bridge 帮助 | `/bridge` |
 
-### AI 交互命令
+### Claude Code 命令
 
-直接发送任何文本或编程任务，GLM API 会处理：
-
-```
-帮我重构这个函数
-解释这段代码的作用
-创建一个新的用户认证模块
-优化这个算法的性能
-```
+| 命令 | 功能 |
+|------|------|
+| `/help` | 显示 Claude Code 帮助 |
+| `/clear` | 清空对话历史 |
+| `/model` | 查看当前模型 |
+| `/cost` | 查看使用成本 |
 
 ---
 
 ## 💡 使用示例
 
-### 查看当前目录
+### 查看和切换目录
 ```
-/pwd
-```
-
-### 切换到项目目录
-```
-/cd C:\Users\YourName\Projects\MyProject
+/pwd                    # 查看当前目录
+/cd C:\Projects         # 切换到项目目录
 ```
 
-### 使用 GLM AI 进行编程
+### 执行命令
 ```
-帮我写一个 Python 快速排序算法
-解释一下这段 JavaScript 代码
-优化这个 SQL 查询的性能
+ls                      # 列出文件
+cat README.md          # 查看文件
+```
+
+### AI 交互
+```
+帮我重构这个函数
+解释这段代码
+创建用户认证模块
 ```
 
 ---
@@ -178,10 +175,9 @@ python claude_bridge.py
 
 ```
 claude-bridge-windows/
-├── claude_bridge.py         # 主程序（GLM API 优化）
+├── claude_bridge.py         # 主程序
 ├── .env.example             # 配置模板
 ├── start.bat                # 启动脚本
-├── run.bat                  # 运行脚本
 ├── README.md                # 项目文档
 ├── .gitignore               # Git 忽略文件
 └── LICENSE                  # MIT 许可证
@@ -193,151 +189,64 @@ claude-bridge-windows/
 
 ### 环境变量
 
-| 变量 | 说明 | 必填 | 默认值 |
-|------|------|------|--------|
-| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token | ✅ | - |
-| `ZHIPU_API_KEY` | 智谱 GLM API Key | ✅ | - |
-| `PROJECT_PATH` | 默认项目路径 | ❌ | 当前目录 |
-
-### GLM 模型选择
-
-本项目默认使用 GLM-4 系列，推荐配置：
-
-```bash
-# 高性价比（推荐）
-GLM-4-Air - 快速响应，成本低
-
-# 复杂任务
-GLM-4-Plus - 更强推理能力
-
-# 极速响应
-GLM-4-Flash - 免费额度大
-```
+| 变量 | 说明 | 必填 |
+|------|------|------|
+| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token | ✅ |
+| `ZHIPU_API_KEY` | 智谱 AI API Key | ❌（有 Claude Code CLI 时） |
+| `PROJECT_PATH` | 默认项目路径 | ❌ |
 
 ---
 
-## 🛡️ 技术架构
+## 📝 技术实现
 
-### 原始 MateBot 架构（复杂）
-
-```
-Telegram → MateBot → tmux → Claude Code CLI
-                           ↓
-                    监控 transcript 文件
-                           ↓
-                解析 Anthropic 格式
-                           ↓
-                    发送到 Telegram
-```
-
-**问题：**
-- ❌ 依赖 Anthropic API（昂贵）
-- ❌ 需要 tmux（Windows 不兼容）
-- ❌ 需要 transcript 文件
-- ❌ 架构复杂，难以维护
-
-### Claude Bridge 架构（优化）
+### 工作流程
 
 ```
-Telegram → Claude Bridge → GLM Coding Plan API
-                           ↓
-                      直接调用
-                           ↓
-                    流式返回结果
-                           ↓
-                    发送到 Telegram
+1. Telegram 接收消息
+2. Claude Bridge 处理消息
+3. 根据 API 选择：
+   a) Claude Code CLI：subprocess 调用
+   b) GLM API：HTTP 请求
+4. 流式返回结果到 Telegram
 ```
 
-**优势：**
-- ✅ 使用 GLM API（便宜 90%+）
-- ✅ 无需 transcript 文件
-- ✅ 无需 tmux，Windows 原生
-- ✅ 架构简单，易维护
-- ✅ 流式输出，体验流畅
+### 关键技术点
 
----
-
-## 📊 性能与成本
-
-### 实际测试数据
-
-| 任务类型 | Claude API | GLM API | 节省 |
-|---------|-----------|---------|------|
-| 代码生成（100行） | $0.15 | $0.01 | **93%** |
-| 代码解释 | $0.08 | $0.005 | **94%** |
-| Bug 修复 | $0.20 | $0.015 | **93%** |
-| 代码重构 | $0.30 | $0.02 | **93%** |
-
-### 月度成本对比
-
-假设每月 1000 次编程任务：
-
-| 方案 | 月度成本 | 年度成本 |
-|------|---------|---------|
-| Claude API | $50-100 | $600-1200 |
-| **GLM API** | **$5-10** | **$60-120** |
-| **节省** | **90%** | **90%** |
+- **subprocess.Popen** - 实时读取 Claude Code CLI 输出
+- **流式输出** - 每 ~500 字符发送一次，避免速率限制
+- **stdin.close()** - 正确处理 EOF，避免进程挂起
 
 ---
 
 ## 🐛 故障排查
 
 ### Bot 不响应
-
-1. 检查 API Key 是否正确
-2. 确认网络能访问 GLM API
+1. 检查 Bot Token 是否正确
+2. 确认 Claude Code CLI 或 GLM API 可用
 3. 查看控制台错误日志
 
-### API 配额用完
-
-- GLM-4-Flash: 1M tokens/天（免费）
-- 可以升级到付费计划获取更多额度
-- 即使付费也便宜 90%+
-
 ### 切换目录失败
-
-- 确保路径存在：`/pwd` 查看当前路径
-- 使用绝对路径更可靠：`/cd C:\Projects`
-
----
-
-## 📚 GLM Coding Plan 优势
-
-### 为什么选择 GLM Coding Plan？
-
-1. **专为编程优化** - 理解代码结构，生成高质量代码
-2. **中文友好** - 对中文查询支持更好
-3. **API 稳定** - 国内服务，延迟低
-4. **价格优势** - 比国际模型便宜 90%+
-5. **免费额度大** - 新用户赠送大量 tokens
-
-### 适用场景
-
-- ✅ 代码生成和重构
-- ✅ Bug 修复和调试
-- ✅ 代码解释和文档生成
-- ✅ 算法优化
-- ✅ 技术方案设计
+- 确保路径存在
+- 使用绝对路径更可靠
+- 支持相对路径
 
 ---
 
-## 🆚 与原始 MateBot 对比
+## 📚 基于
 
-| 特性 | MateBot | Claude Bridge |
-|------|---------|---------------|
-| **成本** | 高（Claude API） | **低（GLM API）** |
-| **Transcript** | 必需 | **不需要** |
-| **tmux** | 必需 | **不需要** |
-| **WSL** | Linux/Mac only | **Windows 原生** |
-| **部署难度** | 复杂 | **简单** |
-| **维护成本** | 高 | **低** |
-| **Token 费用** | $$$$ | **$（节省 90%+）** |
+本项目基于 [MateBot](https://github.com/aresbit/MateBot) 修改，主要变更：
+
+- 移除 tmux 依赖
+- 移除 transcript 文件依赖
+- 添加 Windows 原生支持
+- 添加 GLM API 支持
+- 添加项目目录切换功能
 
 ---
 
 ## 📄 License
 
-MIT License - 详见 [LICENSE](LICENSE) 文件
+MIT License
 
 ---
 
@@ -347,19 +256,4 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 
 ---
 
-## ⭐ Star History
-
-如果这个项目帮你节省了成本，请给个 Star ⭐
-
----
-
-## 📞 联系方式
-
-- GitHub: [@lazymark2](https://github.com/lazymark2)
-- Issues: [提交问题](https://github.com/lazymark2/claude-bridge-windows/issues)
-
----
-
-**Made with ❤️ for budget-conscious developers**
-
-💰 **省钱，从选择 GLM API 开始！**
+**Made with ❤️ for Claude Code CLI users on Windows**
