@@ -85,6 +85,9 @@ def send_message(chat_id, text, reply_markup=None):
         text = text[:4090] + "... [截断]"
 
     data = {"chat_id": chat_id, "text": text}
+
+    # 不使用 parse_mode，让 Telegram 自动渲染
+    # 代码块等基本格式会自动显示
     if reply_markup:
         data["reply_markup"] = reply_markup
 
@@ -168,6 +171,13 @@ class ClaudeCodeCLI:
 
     def _find_claude_command(self):
         """查找 Claude Code CLI 命令"""
+        # Windows: 隐藏控制台窗口
+        startupinfo = None
+        if self.is_windows:
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+
         # 优先级: PATH → npm 全局目录
         try:
             # Windows 上需要 shell=True 来运行 .cmd 文件
@@ -175,7 +185,8 @@ class ClaudeCodeCLI:
                        shell=True,
                        capture_output=True,
                        check=True,
-                       timeout=5)
+                       timeout=5,
+                       startupinfo=startupinfo)
             return "claude"
         except (subprocess.CalledProcessError, FileNotFoundError):
             # 尝试 npx 方式
@@ -184,12 +195,13 @@ class ClaudeCodeCLI:
                            shell=True,
                            capture_output=True,
                            check=True,
-                           timeout=10)
+                           timeout=10,
+                           startupinfo=startupinfo)
                 return "npx -y @anthropic-ai/claude-code"
             except:
                 return None
 
-    def send_prompt_stream(self, prompt, chat_id, callback, timeout=300):
+    def send_prompt_stream(self, prompt, chat_id, callback, timeout=300, session_id=None):
         """发送提示词到 Claude Code CLI 并流式输出
 
         Args:
@@ -197,18 +209,30 @@ class ClaudeCodeCLI:
             chat_id: Telegram Chat ID
             callback: 接收到新内容时的回调函数 callback(text_chunk)
             timeout: 超时时间（秒）
-
+            session_id: 可选的会话 ID，用于保持上下文
         Returns:
             (success: bool, error: str)
         """
         try:
             if self.is_windows:
                 # Windows: 使用 shell=True 来运行 .cmd 文件
-                # 构建完整的命令（包含权限模式）
+                # 构建完整的命令（包含权限模式和会话）
                 cmd = self.claude_cmd
                 if PERMISSION_MODE != "default":
                     cmd += f" --permission-mode {PERMISSION_MODE}"
                     print(f"[Claude CLI] 使用权限模式: {PERMISSION_MODE}")
+
+                # 添加 session-id 来保持会话上下文
+                if session_id:
+                    cmd += f" --session-id {session_id}"
+                    print(f"[Claude CLI] 使用会话: {session_id}")
+
+                # Windows: 隐藏控制台窗口
+                startupinfo = None
+                if self.is_windows:
+                    startupinfo = subprocess.STARTUPINFO()
+                    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                    startupinfo.wShowWindow = subprocess.SW_HIDE
 
                 # 启动进程并实时读取输出
                 process = subprocess.Popen(
@@ -218,7 +242,8 @@ class ClaudeCodeCLI:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,  # 合并 stderr 到 stdout
                     text=True,
-                    cwd=self.project_path
+                    cwd=self.project_path,
+                    startupinfo=startupinfo
                 )
 
                 # 发送输入
@@ -269,6 +294,11 @@ class ClaudeCodeCLI:
         """
         try:
             if self.is_windows:
+                # Windows: 隐藏控制台窗口
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = subprocess.SW_HIDE
+
                 # Windows: 使用 shell=True 来运行 .cmd 文件
                 # 使用 stdin 发送输入
                 result = subprocess.run(
@@ -279,7 +309,8 @@ class ClaudeCodeCLI:
                     capture_output=True,
                     text=True,
                     timeout=timeout,
-                    check=False
+                    check=False,
+                    startupinfo=startupinfo
                 )
 
                 output = result.stdout
@@ -373,6 +404,39 @@ class GLMClient:
 # 主 Bot 逻辑
 # ============================================================
 
+class TypingIndicator:
+    """Typing 指示器管理器"""
+
+    def __init__(self):
+        self.active_threads = {}  # {chat_id: threading.Thread}
+
+    def start(self, chat_id):
+        """开始显示 typing 指示"""
+        # 如果已有线程在运行，先停止它
+        self.stop(chat_id)
+
+        # 创建新线程定期发送 typing 动作
+        def typing_loop():
+            while chat_id in self.active_threads:
+                try:
+                    telegram_api("sendChatAction", {"chat_id": chat_id, "action": "typing"})
+                    time.sleep(3)  # 每 3 秒发送一次
+                except:
+                    break
+
+        thread = threading.Thread(target=typing_loop, daemon=True)
+        thread.start()
+        self.active_threads[chat_id] = thread
+
+    def stop(self, chat_id):
+        """停止显示 typing 指示"""
+        if chat_id in self.active_threads:
+            # 删除引用，线程会在下次循环时退出
+            del self.active_threads[chat_id]
+
+# 全局 typing 指示器
+typing_indicator = TypingIndicator()
+
 class ClaudeBridge:
     """Claude Bridge - 主控制器"""
 
@@ -388,6 +452,10 @@ class ClaudeBridge:
 
         # 待确认命令存储 {chat_id: {"command": str, "timestamp": float}}
         self.pending_confirmations = {}
+
+        # 会话管理 - 每个 chat_id 使用固定的 session-id
+        # 这样可以保持对话上下文
+        self.chat_sessions = {}  # {chat_id: session_id}
 
         # 优先使用 Claude Code CLI，失败则使用 GLM API
         if self.claude.is_available():
@@ -551,6 +619,16 @@ https://github.com/lazymark2/claude-bridge-windows"""
         """
         print(f"\n[ClaudeBridge] 处理消息: {user_message[:50]}...")
 
+        # 获取或创建会话 ID
+        if chat_id not in self.chat_sessions:
+            import uuid
+            self.chat_sessions[chat_id] = str(uuid.uuid4())
+            print(f"[ClaudeBridge] 创建新会话: {self.chat_sessions[chat_id]}")
+        else:
+            print(f"[ClaudeBridge] 使用现有会话: {self.chat_sessions[chat_id]}")
+
+        session_id = self.chat_sessions[chat_id]
+
         # 处理斜杠命令
         # Bridge 特殊命令（pwd, cd, home, downloads, desktop, bridge, help）需要去掉斜杠
         BRIDGE_COMMANDS = {"pwd", "cd", "home", "downloads", "desktop", "bridge", "help"}
@@ -598,6 +676,9 @@ https://github.com/lazymark2/claude-bridge-windows"""
         # 发送"正在思考"通知
         telegram_api("sendChatAction", {"chat_id": chat_id, "action": "typing"})
 
+        # 启动持续 typing 指示器
+        typing_indicator.start(chat_id)
+
         # 流式发送回调
         last_sent_length = 0
 
@@ -620,33 +701,48 @@ https://github.com/lazymark2/claude-bridge-windows"""
             last_sent_length = len(content)
 
         # 根据模式调用
-        if self.mode == "claude":
-            success, error = self.claude.send_prompt_stream(user_message, chat_id, stream_callback)
-        else:  # glm
-            messages = [
-                {"role": "system", "content": "You are Claude Code, a helpful AI coding assistant."},
-                {"role": "user", "content": user_message}
-            ]
-            success, output, error = self.glm.chat(messages)
-            if success:
-                stream_callback(output)
+        try:
+            if self.mode == "claude":
+                success, error = self.claude.send_prompt_stream(user_message, chat_id, stream_callback, session_id=session_id)
+            else:  # glm
+                messages = [
+                    {"role": "system", "content": "You are Claude Code, a helpful AI coding assistant."},
+                    {"role": "user", "content": user_message}
+                ]
+                success, output, error = self.glm.chat(messages)
+                if success:
+                    stream_callback(output)
+                else:
+                    success = False
 
-        if not success:
-            # 发送错误消息
-            error_msg = f"❌ 执行失败\n\n错误信息: {error}"
-            send_message(chat_id, error_msg)
-            print(f"[ClaudeBridge] ✗ 错误: {error}")
-        else:
+            if not success:
+                # 发送错误消息
+                error_msg = f"❌ 执行失败\n\n错误信息: {error}"
+                send_message(chat_id, error_msg)
+                print(f"[ClaudeBridge] ✗ 错误: {error}")
+        finally:
+            # 停止 typing 指示器
+            typing_indicator.stop(chat_id)
             print(f"[ClaudeBridge] ✓ 完成")
 
     def _execute_prompt(self, user_message, chat_id):
-        """内部方法：直接执行提示词（跳过所有检查）
+        """内部方法:直接执行提示词(跳过所有检查)
 
         Args:
             user_message: 用户消息
             chat_id: Telegram Chat ID
         """
         print(f"\n[ClaudeBridge] 执行命令: {user_message[:50]}...")
+
+        # 获取或创建会话 ID(使用与 process_message 相同的会话)
+        if chat_id not in self.chat_sessions:
+            import uuid
+            self.chat_sessions[chat_id] = str(uuid.uuid4())
+            print(f"[ClaudeBridge] 创建新会话: {self.chat_sessions[chat_id]}")
+        else:
+            print(f"[ClaudeBridge] 使用现有会话: {self.chat_sessions[chat_id]}")
+
+        session_id = self.chat_sessions[chat_id]
 
         # 在命令前添加中文提示，确保回复使用中文
         # 这样可以保持语言一致性
@@ -660,6 +756,9 @@ https://github.com/lazymark2/claude-bridge-windows"""
         # 发送"正在思考"通知
         telegram_api("sendChatAction", {"chat_id": chat_id, "action": "typing"})
 
+        # 启动持续 typing 指示器
+        typing_indicator.start(chat_id)
+
         # 流式发送回调
         last_sent_length = 0
 
@@ -682,23 +781,28 @@ https://github.com/lazymark2/claude-bridge-windows"""
             last_sent_length = len(content)
 
         # 根据模式调用
-        if self.mode == "claude":
-            success, error = self.claude.send_prompt_stream(prompt_to_send, chat_id, stream_callback)
-        else:  # glm
-            messages = [
-                {"role": "system", "content": "You are Claude Code, a helpful AI coding assistant."},
-                {"role": "user", "content": prompt_to_send}
-            ]
-            success, output, error = self.glm.chat(messages)
-            if success:
-                stream_callback(output)
+        try:
+            if self.mode == "claude":
+                success, error = self.claude.send_prompt_stream(prompt_to_send, chat_id, stream_callback, session_id=session_id)
+            else:  # glm
+                messages = [
+                    {"role": "system", "content": "You are Claude Code, a helpful AI coding assistant."},
+                    {"role": "user", "content": prompt_to_send}
+                ]
+                success, output, error = self.glm.chat(messages)
+                if success:
+                    stream_callback(output)
+                else:
+                    success = False
 
-        if not success:
-            # 发送错误消息
-            error_msg = f"❌ 执行失败\n\n错误信息: {error}"
-            send_message(chat_id, error_msg)
-            print(f"[ClaudeBridge] ✗ 错误: {error}")
-        else:
+            if not success:
+                # 发送错误消息
+                error_msg = f"❌ 执行失败\n\n错误信息: {error}"
+                send_message(chat_id, error_msg)
+                print(f"[ClaudeBridge] ✗ 错误: {error}")
+        finally:
+            # 停止 typing 指示器
+            typing_indicator.stop(chat_id)
             print(f"[ClaudeBridge] ✓ 完成")
 
     def _split_message(self, text, max_length=4000):
