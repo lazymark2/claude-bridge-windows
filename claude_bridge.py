@@ -36,6 +36,9 @@ UPDATE_OFFSET_FILE = Path.home() / ".claude" / "telegram_offset"
 GLM_API_KEY = os.environ.get("ZHIPU_API_KEY", "")
 GLM_API_BASE = "https://open.bigmodel.cn/api/paas/v4/"
 
+# Claude Code 权限模式（用于自动化）
+PERMISSION_MODE = os.environ.get("PERMISSION_MODE", "default")
+
 # ============================================================
 # Telegram API
 # ============================================================
@@ -62,8 +65,14 @@ def get_updates(offset=None):
         data["offset"] = offset
     return telegram_api("getUpdates", data)
 
-def send_message(chat_id, text):
-    """发送消息到 Telegram"""
+def send_message(chat_id, text, reply_markup=None):
+    """发送消息到 Telegram
+
+    Args:
+        chat_id: Telegram Chat ID
+        text: 消息文本
+        reply_markup: 可选的内联键盘（InlineKeyboardMarkup）
+    """
     # 清理 ANSI 码
     text = clean_ansi(text)
 
@@ -75,7 +84,31 @@ def send_message(chat_id, text):
     if len(text) > 4096:
         text = text[:4090] + "... [截断]"
 
-    return telegram_api("sendMessage", {"chat_id": chat_id, "text": text})
+    data = {"chat_id": chat_id, "text": text}
+    if reply_markup:
+        data["reply_markup"] = reply_markup
+
+    return telegram_api("sendMessage", data)
+
+def create_confirmation_keyboard():
+    """创建确认/取消按钮的内联键盘"""
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {"text": "✅ 确认操作", "callback_data": "confirm_yes"},
+                {"text": "❌ 取消操作", "callback_data": "confirm_no"}
+            ]
+        ]
+    }
+    return json.dumps(keyboard)
+
+def answer_callback_query(callback_query_id, text=None):
+    """回答回调查询（避免按钮一直在加载状态）"""
+    data = {"callback_query_id": callback_query_id}
+    if text:
+        data["text"] = text
+        data["show_alert"] = True
+    return telegram_api("answerCallbackQuery", data)
 
 def setup_bot_commands():
     """注册 Telegram Bot 命令菜单"""
@@ -85,6 +118,7 @@ def setup_bot_commands():
         {"command": "home", "description": "🏠 切换到用户主目录"},
         {"command": "downloads", "description": "⬇️ 切换到下载目录"},
         {"command": "desktop", "description": "🖥️ 切换到桌面"},
+        {"command": "help", "description": "❓ 显示使用帮助"},
         {"command": "bridge", "description": "🔧 显示 Bridge 控制命令帮助"},
     ]
 
@@ -119,8 +153,8 @@ class ClaudeCodeCLI:
     """Claude Code CLI 包装器 - Windows 版本"""
 
     def __init__(self, project_path=None):
-        # 默认路径：环境变量 → 当前目录
-        default_path = Path(os.environ.get("PROJECT_PATH", Path.cwd()))
+        # 默认路径：环境变量 → 家目录
+        default_path = Path(os.environ.get("PROJECT_PATH", Path.home()))
         self.project_path = project_path or default_path
         self.is_windows = sys.platform == "win32"
 
@@ -170,9 +204,15 @@ class ClaudeCodeCLI:
         try:
             if self.is_windows:
                 # Windows: 使用 shell=True 来运行 .cmd 文件
+                # 构建完整的命令（包含权限模式）
+                cmd = self.claude_cmd
+                if PERMISSION_MODE != "default":
+                    cmd += f" --permission-mode {PERMISSION_MODE}"
+                    print(f"[Claude CLI] 使用权限模式: {PERMISSION_MODE}")
+
                 # 启动进程并实时读取输出
                 process = subprocess.Popen(
-                    self.claude_cmd,
+                    cmd,
                     shell=True,
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
@@ -346,6 +386,9 @@ class ClaudeBridge:
         self.last_transcript_path = None
         self.last_position = 0
 
+        # 待确认命令存储 {chat_id: {"command": str, "timestamp": float}}
+        self.pending_confirmations = {}
+
         # 优先使用 Claude Code CLI，失败则使用 GLM API
         if self.claude.is_available():
             self.mode = "claude"
@@ -466,21 +509,51 @@ class ClaudeBridge:
                 send_message(chat_id, "❌ 桌面目录不存在")
                 return True
 
+        # help - 显示帮助信息
+        if command == "help":
+            help_text = """🤖 Claude Bridge 使用说明
+
+**Bridge 控制命令：**
+`/pwd` - 显示当前工作目录
+`/cd <path>` - 切换到指定目录
+`/home` - 切换到用户主目录
+`/downloads` - 切换到下载目录
+`/desktop` - 切换到桌面
+`/bridge` - 显示此帮助信息
+
+**AI 对话：**
+直接发送任何文本都会作为提示词发送给 Claude Code CLI。
+
+例如：
+• "帮我分析这个文件"
+• "创建一个 Python 脚本"
+• "解释这段代码"
+
+**工作目录：**
+• 使用 `/cd` 切换到你的项目目录
+• 之后所有 AI 操作都会在该目录下进行
+
+**更多信息：**
+https://github.com/lazymark2/claude-bridge-windows"""
+            send_message(chat_id, help_text)
+            print(f"[Bridge] 显示帮助信息")
+            return True
+
         return False
 
-    def process_message(self, user_message, chat_id):
+    def process_message(self, user_message, chat_id, skip_danger_check=False):
         """处理用户消息
 
         Args:
             user_message: 用户消息
             chat_id: Telegram Chat ID
+            skip_danger_check: 是否跳过危险操作检查（内部使用）
         """
         print(f"\n[ClaudeBridge] 处理消息: {user_message[:50]}...")
 
         # 处理斜杠命令
-        # Bridge 特殊命令（pwd, cd, home, downloads, desktop, bridge）需要去掉斜杠
-        # Claude Code CLI 内置命令（/model, /cost, /help, /clear 等）需要保留斜杠
-        BRIDGE_COMMANDS = {"pwd", "cd", "home", "downloads", "desktop", "bridge"}
+        # Bridge 特殊命令（pwd, cd, home, downloads, desktop, bridge, help）需要去掉斜杠
+        BRIDGE_COMMANDS = {"pwd", "cd", "home", "downloads", "desktop", "bridge", "help"}
 
         if user_message.startswith("/"):
             # 提取命令名（不包含参数）
@@ -498,6 +571,29 @@ class ClaudeBridge:
         # 处理特殊的 Bridge 控制命令
         if self._handle_bridge_commands(user_message, chat_id):
             return
+
+        # 危险操作检测和确认系统（仅当 skip_danger_check=False 时检查）
+        if not skip_danger_check:
+            dangerous_keywords = [
+                "删除", "delete", "remove", "rm",
+                "重命名", "rename", "mv",
+                "移动", "move",
+                "清空", "clear", "clean",
+                "格式化", "format"
+            ]
+            message_lower = user_message.lower()
+            detected_dangerous = [kw for kw in dangerous_keywords if kw in message_lower]
+
+            if detected_dangerous:
+                # 存储待确认命令
+                self.pending_confirmations[chat_id] = {
+                    "command": user_message,
+                    "timestamp": time.time()
+                }
+                warning_msg = f"⚠️ 检测到危险操作: {', '.join(detected_dangerous)}\n\n命令: {user_message[:100]}...\n\n请点击下方按钮选择操作"
+                send_message(chat_id, warning_msg, reply_markup=create_confirmation_keyboard())
+                print(f"[ClaudeBridge] 危险操作，等待确认: {detected_dangerous}")
+                return  # 不执行，等待用户确认
 
         # 发送"正在思考"通知
         telegram_api("sendChatAction", {"chat_id": chat_id, "action": "typing"})
@@ -530,6 +626,68 @@ class ClaudeBridge:
             messages = [
                 {"role": "system", "content": "You are Claude Code, a helpful AI coding assistant."},
                 {"role": "user", "content": user_message}
+            ]
+            success, output, error = self.glm.chat(messages)
+            if success:
+                stream_callback(output)
+
+        if not success:
+            # 发送错误消息
+            error_msg = f"❌ 执行失败\n\n错误信息: {error}"
+            send_message(chat_id, error_msg)
+            print(f"[ClaudeBridge] ✗ 错误: {error}")
+        else:
+            print(f"[ClaudeBridge] ✓ 完成")
+
+    def _execute_prompt(self, user_message, chat_id):
+        """内部方法：直接执行提示词（跳过所有检查）
+
+        Args:
+            user_message: 用户消息
+            chat_id: Telegram Chat ID
+        """
+        print(f"\n[ClaudeBridge] 执行命令: {user_message[:50]}...")
+
+        # 在命令前添加中文提示，确保回复使用中文
+        # 这样可以保持语言一致性
+        prompt_to_send = user_message
+        if not user_message.startswith("请用中文") and not user_message.startswith("Please"):
+            # 检测是否包含中文字符
+            has_chinese = any('\u4e00' <= char <= '\u9fff' for char in user_message)
+            if has_chinese:
+                prompt_to_send = f"请用中文回答以下问题：\n\n{user_message}"
+
+        # 发送"正在思考"通知
+        telegram_api("sendChatAction", {"chat_id": chat_id, "action": "typing"})
+
+        # 流式发送回调
+        last_sent_length = 0
+
+        def stream_callback(content):
+            """流式发送内容到 Telegram"""
+            nonlocal last_sent_length
+
+            # 只发送新增的内容
+            new_content = content[last_sent_length:]
+            if not new_content or not new_content.strip():
+                return
+
+            # 分块发送（Telegram 限制4096字符）
+            chunks = self._split_message(new_content, max_length=4000)
+            for chunk in chunks:
+                result = send_message(chat_id, chunk)
+                if result and result.get("ok"):
+                    print(f"[ClaudeBridge] 发送 {len(chunk)} 字符")
+
+            last_sent_length = len(content)
+
+        # 根据模式调用
+        if self.mode == "claude":
+            success, error = self.claude.send_prompt_stream(prompt_to_send, chat_id, stream_callback)
+        else:  # glm
+            messages = [
+                {"role": "system", "content": "You are Claude Code, a helpful AI coding assistant."},
+                {"role": "user", "content": prompt_to_send}
             ]
             success, output, error = self.glm.chat(messages)
             if success:
@@ -656,6 +814,49 @@ def main():
 
                             # 处理消息
                             bridge.process_message(text, chat_id)
+
+                        # 处理回调查询（按钮点击）
+                        elif "callback_query" in update:
+                            callback_query = update["callback_query"]
+                            callback_id = callback_query.get("id", "")
+                            data = callback_query.get("data", "")
+                            message_obj = callback_query.get("message", {})
+                            chat_id = str(message_obj.get("chat", {}).get("id", ""))
+
+                            print(f"\n[回调查询 #{update_id}] 用户 {chat_id}: {data}")
+
+                            # 处理确认按钮
+                            if chat_id in bridge.pending_confirmations:
+                                pending = bridge.pending_confirmations[chat_id]
+
+                                # 检查超时（5分钟）
+                                if time.time() - pending["timestamp"] > 300:
+                                    del bridge.pending_confirmations[chat_id]
+                                    answer_callback_query(callback_id, "⏱️ 确认已超时")
+                                    send_message(chat_id, "⏱️ 确认已超时，请重新发送命令。")
+                                    continue
+
+                                if data == "confirm_yes":
+                                    # 确认执行
+                                    actual_command = pending["command"]
+                                    del bridge.pending_confirmations[chat_id]
+                                    answer_callback_query(callback_id, "✅ 已确认，正在执行...")
+                                    send_message(chat_id, "✅ 已确认，正在执行...")
+                                    print(f"[ClaudeBridge] 用户确认执行: {actual_command[:50]}...")
+                                    bridge._execute_prompt(actual_command, chat_id)
+
+                                elif data == "confirm_no":
+                                    # 取消操作
+                                    del bridge.pending_confirmations[chat_id]
+                                    answer_callback_query(callback_id, "❌ 已取消操作")
+                                    send_message(chat_id, "❌ 已取消操作。")
+                                    print(f"[ClaudeBridge] 用户取消操作")
+                                else:
+                                    # 未知数据
+                                    answer_callback_query(callback_id)
+                            else:
+                                # 没有待确认的命令
+                                answer_callback_query(callback_id, "❌ 没有待确认的操作")
 
                     except Exception as e:
                         print(f"[错误] 处理更新 {update_id}: {e}")
