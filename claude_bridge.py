@@ -457,6 +457,9 @@ class ClaudeBridge:
         # 这样可以保持对话上下文
         self.chat_sessions = {}  # {chat_id: session_id}
 
+        # 会话锁 - 防止同一个 session ID 同时启动多个进程
+        self.session_locks = {}  # {chat_id: threading.Lock}
+
         # 优先使用 Claude Code CLI，失败则使用 GLM API
         if self.claude.is_available():
             self.mode = "claude"
@@ -629,6 +632,12 @@ https://github.com/lazymark2/claude-bridge-windows"""
 
         session_id = self.chat_sessions[chat_id]
 
+        # 获取或创建该会话的锁
+        if chat_id not in self.session_locks:
+            self.session_locks[chat_id] = threading.Lock()
+
+        session_lock = self.session_locks[chat_id]
+
         # 处理斜杠命令
         # Bridge 特殊命令（pwd, cd, home, downloads, desktop, bridge, help）需要去掉斜杠
         BRIDGE_COMMANDS = {"pwd", "cd", "home", "downloads", "desktop", "bridge", "help"}
@@ -700,6 +709,11 @@ https://github.com/lazymark2/claude-bridge-windows"""
 
             last_sent_length = len(content)
 
+        # 获取会话锁，防止同一个 session ID 同时启动多个进程
+        print(f"[ClaudeBridge] 等待会话锁...")
+        session_lock.acquire()
+        print(f"[ClaudeBridge] 获得会话锁")
+
         # 根据模式调用
         try:
             if self.mode == "claude":
@@ -721,6 +735,9 @@ https://github.com/lazymark2/claude-bridge-windows"""
                 send_message(chat_id, error_msg)
                 print(f"[ClaudeBridge] ✗ 错误: {error}")
         finally:
+            # 释放会话锁
+            session_lock.release()
+            print(f"[ClaudeBridge] 释放会话锁")
             # 停止 typing 指示器
             typing_indicator.stop(chat_id)
             print(f"[ClaudeBridge] ✓ 完成")
