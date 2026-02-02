@@ -201,7 +201,7 @@ class ClaudeCodeCLI:
             except:
                 return None
 
-    def send_prompt_stream(self, prompt, chat_id, callback, timeout=300, session_id=None):
+    def send_prompt_stream(self, prompt, chat_id, callback, timeout=300):
         """发送提示词到 Claude Code CLI 并流式输出
 
         Args:
@@ -209,23 +209,20 @@ class ClaudeCodeCLI:
             chat_id: Telegram Chat ID
             callback: 接收到新内容时的回调函数 callback(text_chunk)
             timeout: 超时时间（秒）
-            session_id: 可选的会话 ID，用于保持上下文
         Returns:
             (success: bool, error: str)
         """
         try:
             if self.is_windows:
                 # Windows: 使用 shell=True 来运行 .cmd 文件
-                # 构建完整的命令（包含权限模式和会话）
+                # 构建完整的命令（包含权限模式）
                 cmd = self.claude_cmd
                 if PERMISSION_MODE != "default":
                     cmd += f" --permission-mode {PERMISSION_MODE}"
                     print(f"[Claude CLI] 使用权限模式: {PERMISSION_MODE}")
 
-                # 添加 session-id 来保持会话上下文
-                if session_id:
-                    cmd += f" --session-id {session_id}"
-                    print(f"[Claude CLI] 使用会话: {session_id}")
+                # 每次对话都是独立的，不使用 --resume 或 --session-id
+                cmd += f" -p \"{prompt}\""
 
                 # Windows: 隐藏控制台窗口
                 startupinfo = None
@@ -453,12 +450,9 @@ class ClaudeBridge:
         # 待确认命令存储 {chat_id: {"command": str, "timestamp": float}}
         self.pending_confirmations = {}
 
-        # 会话管理 - 每个 chat_id 使用固定的 session-id
-        # 这样可以保持对话上下文
-        self.chat_sessions = {}  # {chat_id: session_id}
-
-        # 会话锁 - 防止同一个 session ID 同时启动多个进程
-        self.session_locks = {}  # {chat_id: threading.Lock}
+        # 会话管理 - 每次对话独立，不使用 --resume
+        # 避免 session ID 冲突问题
+        self.chat_sessions = {}  # {chat_id: last_message_time}
 
         # 优先使用 Claude Code CLI，失败则使用 GLM API
         if self.claude.is_available():
@@ -622,21 +616,8 @@ https://github.com/lazymark2/claude-bridge-windows"""
         """
         print(f"\n[ClaudeBridge] 处理消息: {user_message[:50]}...")
 
-        # 获取或创建会话 ID
-        if chat_id not in self.chat_sessions:
-            import uuid
-            self.chat_sessions[chat_id] = str(uuid.uuid4())
-            print(f"[ClaudeBridge] 创建新会话: {self.chat_sessions[chat_id]}")
-        else:
-            print(f"[ClaudeBridge] 使用现有会话: {self.chat_sessions[chat_id]}")
-
-        session_id = self.chat_sessions[chat_id]
-
-        # 获取或创建该会话的锁
-        if chat_id not in self.session_locks:
-            self.session_locks[chat_id] = threading.Lock()
-
-        session_lock = self.session_locks[chat_id]
+        # 记录消息时间
+        self.chat_sessions[chat_id] = time.time()
 
         # 处理斜杠命令
         # Bridge 特殊命令（pwd, cd, home, downloads, desktop, bridge, help）需要去掉斜杠
@@ -709,15 +690,10 @@ https://github.com/lazymark2/claude-bridge-windows"""
 
             last_sent_length = len(content)
 
-        # 获取会话锁，防止同一个 session ID 同时启动多个进程
-        print(f"[ClaudeBridge] 等待会话锁...")
-        session_lock.acquire()
-        print(f"[ClaudeBridge] 获得会话锁")
-
         # 根据模式调用
         try:
             if self.mode == "claude":
-                success, error = self.claude.send_prompt_stream(user_message, chat_id, stream_callback, session_id=session_id)
+                success, error = self.claude.send_prompt_stream(user_message, chat_id, stream_callback)
             else:  # glm
                 messages = [
                     {"role": "system", "content": "You are Claude Code, a helpful AI coding assistant."},
@@ -735,9 +711,6 @@ https://github.com/lazymark2/claude-bridge-windows"""
                 send_message(chat_id, error_msg)
                 print(f"[ClaudeBridge] ✗ 错误: {error}")
         finally:
-            # 释放会话锁
-            session_lock.release()
-            print(f"[ClaudeBridge] 释放会话锁")
             # 停止 typing 指示器
             typing_indicator.stop(chat_id)
             print(f"[ClaudeBridge] ✓ 完成")
@@ -750,16 +723,6 @@ https://github.com/lazymark2/claude-bridge-windows"""
             chat_id: Telegram Chat ID
         """
         print(f"\n[ClaudeBridge] 执行命令: {user_message[:50]}...")
-
-        # 获取或创建会话 ID(使用与 process_message 相同的会话)
-        if chat_id not in self.chat_sessions:
-            import uuid
-            self.chat_sessions[chat_id] = str(uuid.uuid4())
-            print(f"[ClaudeBridge] 创建新会话: {self.chat_sessions[chat_id]}")
-        else:
-            print(f"[ClaudeBridge] 使用现有会话: {self.chat_sessions[chat_id]}")
-
-        session_id = self.chat_sessions[chat_id]
 
         # 在命令前添加中文提示，确保回复使用中文
         # 这样可以保持语言一致性
@@ -800,7 +763,7 @@ https://github.com/lazymark2/claude-bridge-windows"""
         # 根据模式调用
         try:
             if self.mode == "claude":
-                success, error = self.claude.send_prompt_stream(prompt_to_send, chat_id, stream_callback, session_id=session_id)
+                success, error = self.claude.send_prompt_stream(prompt_to_send, chat_id, stream_callback)
             else:  # glm
                 messages = [
                     {"role": "system", "content": "You are Claude Code, a helpful AI coding assistant."},
